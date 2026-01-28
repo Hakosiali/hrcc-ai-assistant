@@ -8,6 +8,10 @@ import pandas as pd
 import pdfplumber
 from langdetect import detect, DetectorFactory
 import re
+from docx import Document
+from openpyxl import load_workbook
+from pptx import Presentation
+import requests
 
 DetectorFactory.seed = 0
 
@@ -256,6 +260,78 @@ def extract_pdf_text(pdf_file):
     except Exception as e:
         return f"Error reading PDF: {e}"
 
+def extract_docx_text(docx_file):
+    """Extract text from Word (.docx) file"""
+    try:
+        doc = Document(docx_file)
+        text = ""
+        for para in doc.paragraphs:
+            text += para.text + "\n"
+        # Also extract from tables
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    text += cell.text + " "
+            text += "\n"
+        return text
+    except Exception as e:
+        return f"Error reading Word file: {e}"
+
+def extract_xlsx_text(xlsx_file):
+    """Extract text from Excel (.xlsx) file"""
+    try:
+        wb = load_workbook(xlsx_file)
+        text = ""
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            text += f"Sheet: {sheet_name}\n"
+            for row in ws.iter_rows(values_only=True):
+                row_text = " | ".join(str(cell) if cell is not None else "" for cell in row)
+                text += row_text + "\n"
+            text += "\n"
+        return text
+    except Exception as e:
+        return f"Error reading Excel file: {e}"
+
+def extract_pptx_text(pptx_file):
+    """Extract text from PowerPoint (.pptx) file"""
+    try:
+        prs = Presentation(pptx_file)
+        text = ""
+        for slide_num, slide in enumerate(prs.slides, 1):
+            text += f"\nSlide {slide_num}:\n"
+            for shape in slide.shapes:
+                if hasattr(shape, "text"):
+                    text += shape.text + "\n"
+        return text
+    except Exception as e:
+        return f"Error reading PowerPoint file: {e}"
+
+def extract_url_text(url):
+    """Extract text from a webpage URL"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(url, timeout=10, headers=headers)
+        response.raise_for_status()
+        
+        # Simple HTML text extraction (remove HTML tags)
+        import html
+        text = response.text
+        # Remove script and style elements
+        text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+        # Remove HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+        # Decode HTML entities
+        text = html.unescape(text)
+        # Clean up whitespace
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+    except Exception as e:
+        return f"Error reading URL: {e}"
+
 def create_pdf(text, report_type="Report"):
     """Generate a PDF from text"""
     try:
@@ -329,21 +405,65 @@ with tab1:
     # Get knowledge base for selected client
     kb = KNOWLEDGE_BASE.get(client, KNOWLEDGE_BASE["default"])
     
-    # PDF Upload in expander (secondary action)
-    with st.expander("📎 Upload document for context (optional)"):
-        uploaded_pdf = st.file_uploader("PDF only", type=["pdf"], label_visibility="collapsed")
+    # Document Upload & Link Input in expander (secondary action)
+    with st.expander("📎 Upload documents or add links for context (optional)"):
+        col1, col2 = st.columns(2)
         
-        if uploaded_pdf:
-            with st.spinner("📖 Extracting text from PDF..."):
-                extracted_text = extract_pdf_text(uploaded_pdf)
-                st.session_state.uploaded_text = extracted_text
-                st.success(f"✅ Loaded: {uploaded_pdf.name}")
+        with col1:
+            st.markdown("**Upload Files**")
+            uploaded_files = st.file_uploader(
+                "Select documents",
+                type=["pdf", "docx", "xlsx", "pptx"],
+                accept_multiple_files=True,
+                label_visibility="collapsed"
+            )
+            
+            if uploaded_files:
+                for uploaded_file in uploaded_files:
+                    with st.spinner(f"📖 Extracting text from {uploaded_file.name}..."):
+                        if uploaded_file.name.endswith('.pdf'):
+                            extracted_text = extract_pdf_text(uploaded_file)
+                        elif uploaded_file.name.endswith('.docx'):
+                            extracted_text = extract_docx_text(uploaded_file)
+                        elif uploaded_file.name.endswith('.xlsx'):
+                            extracted_text = extract_xlsx_text(uploaded_file)
+                        elif uploaded_file.name.endswith('.pptx'):
+                            extracted_text = extract_pptx_text(uploaded_file)
+                        
+                        if st.session_state.uploaded_text:
+                            st.session_state.uploaded_text += "\n\n---\n\n" + extracted_text
+                        else:
+                            st.session_state.uploaded_text = extracted_text
+                        st.success(f"✅ Loaded: {uploaded_file.name}")
+        
+        with col2:
+            st.markdown("**Add Link**")
+            url_input = st.text_input(
+                "Enter URL to fetch content",
+                placeholder="https://example.com",
+                label_visibility="collapsed"
+            )
+            
+            if url_input and st.button("🔗 Load URL", use_container_width=True):
+                if url_input.startswith("http"):
+                    with st.spinner("🌐 Fetching webpage..."):
+                        url_text = extract_url_text(url_input)
+                        if not url_text.startswith("Error"):
+                            if st.session_state.uploaded_text:
+                                st.session_state.uploaded_text += "\n\n---\n\n" + url_text
+                            else:
+                                st.session_state.uploaded_text = url_text
+                            st.success(f"✅ Loaded: {url_input}")
+                        else:
+                            st.error(url_text)
+                else:
+                    st.error("Please enter a valid URL (starting with http:// or https://)")
     
     # Clear document button
     if st.session_state.uploaded_text:
         col1, col2 = st.columns([4, 1])
         with col2:
-            if st.button("🗑️ Clear", key="clear_doc"):
+            if st.button("🗑️ Clear all", key="clear_doc"):
                 st.session_state.uploaded_text = ""
                 st.rerun()
     
@@ -354,7 +474,7 @@ with tab1:
         with st.chat_message("assistant"):
             st.markdown(
                 "Ask me anything about **Algerian labor law, HR compliance, contracts, or employee rights**. "
-                "You can also upload PDF documents for detailed answers."
+                "You can also upload documents (PDF, Word, Excel, PowerPoint) or provide links for detailed answers."
             )
     
     # Show last 6 messages
