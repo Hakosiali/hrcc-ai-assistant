@@ -1,0 +1,5 @@
+timestamp,username,client,action,details
+2026-01-22T11:43:03.160418,admin,Client A,chat_query,legally how long can a worker take a vacation
+2026-01-22T11:47:04.195295,admin,Client A,legal_query,legally how long can a worker take a vacation
+2026-01-22T11:53:02.272947,admin,Client A,legal_query, What is overtime pay?
+2026-01-22T11:53:30.290480,admin,Client A,legal_query, What is overtime pay? and can u explain with more detail

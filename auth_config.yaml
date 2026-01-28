@@ -1,0 +1,22 @@
+credentials:
+  usernames:
+    consultant1:
+      email: consultant1@hrcc.com
+      name: Consultant One
+      password: "$2b$12$gWo7fkHgl2nFz8u9o4E8/.BSaC4Pz8fxvtjzxKzDqE7Qv8fKzGqHu"
+      role: consultant
+      clients: [client1]
+    admin:
+      email: admin@hrcc.com
+      name: Admin User
+      password: "$2b$12$8Ag7E2jvs2r4E8/.BSaC4Pz8fxvtjzxKzDqE7Qv8fKzGqHu9o4E8/."
+      role: admin
+      clients: [client1, client2]
+
+cookie:
+  expiry_days: 30
+  key: hrcc_ai_key_secure_2024
+  name: hrcc_ai_cookie
+
+pre-authorized:
+  emails: []
