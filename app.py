@@ -251,30 +251,18 @@ if 'uploaded_text' not in st.session_state:
 
 # Main UI
 st.title("⚖️ HRCC AI Assistant")
-st.markdown("**HR Compliance & Knowledge AI Assistant**")
-st.markdown("*Specializing in Algerian Labor Law and HR Compliance*")
+st.caption("Algerian Labor Law & HR Compliance Assistant")
 
 # Sidebar configuration
 with st.sidebar:
-    st.header("⚙️ Configuration")
     client = st.selectbox(
-        "Select Profile",
+        "Profile",
         ["default", "knowledge", "simple"],
         help="Choose knowledge base language/style"
     )
     
     st.divider()
-    st.subheader("📖 About")
-    st.markdown("""
-    This AI assistant helps with:
-    - 🏢 HR compliance
-    - ⚖️ Algerian labor law
-    - 📄 Report generation
-    - 📊 Analytics
-    """)
-    
-    st.divider()
-    if st.button("🔄 Clear Chat"):
+    if st.button("🧹 Clear conversation", use_container_width=True):
         st.session_state.chat_history = []
         st.rerun()
 
@@ -282,51 +270,61 @@ with st.sidebar:
 tab1, tab2, tab3 = st.tabs(["💬 Chat", "📄 Reports", "📊 Analytics"])
 
 with tab1:
-    st.subheader("Ask Legal/HR Questions")
-    
-    # PDF Upload Section
-    st.write("### 📤 Upload Documents (Optional)")
-    uploaded_pdf = st.file_uploader("Upload PDF documents for context", type=['pdf'], key="pdf_upload")
-    
-    if uploaded_pdf:
-        with st.spinner("📖 Extracting text from PDF..."):
-            extracted_text = extract_pdf_text(uploaded_pdf)
-            st.session_state.uploaded_text = extracted_text
-            st.success(f"✅ Loaded: {uploaded_pdf.name} ({len(extracted_text)} characters)")
-            
-            # Show preview
-            with st.expander("📄 Preview extracted text"):
-                st.text(extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text)
-    
-    if st.session_state.uploaded_text:
-        st.info(f"📎 Document loaded. Questions will use this document for answers.")
-        if st.button("🗑️ Clear uploaded document"):
-            st.session_state.uploaded_text = ""
-            st.rerun()
-    
-    st.divider()
-    
     # Get knowledge base for selected client
     kb = KNOWLEDGE_BASE.get(client, KNOWLEDGE_BASE["default"])
     
-    # Chat history display
-    if st.session_state.chat_history:
-        st.write("### Conversation History")
-        for i, msg in enumerate(st.session_state.chat_history[-5:], 1):
-            st.write(f"**Q{i}:** {msg['question']}")
-            st.write(f"**A{i}:** {msg['answer']}")
-            st.divider()
+    # PDF Upload in expander (secondary action)
+    with st.expander("📎 Upload document for context (optional)"):
+        uploaded_pdf = st.file_uploader("PDF only", type=["pdf"], label_visibility="collapsed")
+        
+        if uploaded_pdf:
+            with st.spinner("📖 Extracting text from PDF..."):
+                extracted_text = extract_pdf_text(uploaded_pdf)
+                st.session_state.uploaded_text = extracted_text
+                st.success(f"✅ Loaded: {uploaded_pdf.name}")
     
-    # Input
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        question = st.text_input("Enter your question:", placeholder="E.g., What happens when a worker is late?", key="question_input")
-    with col2:
-        submit_btn = st.button("🔍 Ask", use_container_width=True)
+    # Clear document button
+    if st.session_state.uploaded_text:
+        col1, col2 = st.columns([4, 1])
+        with col2:
+            if st.button("🗑️ Clear", key="clear_doc"):
+                st.session_state.uploaded_text = ""
+                st.rerun()
     
-    if submit_btn and question:
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Display chat history
+    if not st.session_state.chat_history:
+        with st.chat_message("assistant"):
+            st.markdown(
+                "Ask me anything about **Algerian labor law, HR compliance, contracts, or employee rights**. "
+                "You can also upload PDF documents for detailed answers."
+            )
+    
+    # Show last 6 messages
+    for msg in st.session_state.chat_history[-6:]:
+        with st.chat_message("user"):
+            st.markdown(msg["question"])
+        with st.chat_message("assistant"):
+            st.markdown(msg["answer"])
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Chat input (modern ChatGPT-style)
+    question = st.chat_input("Ask a legal or HR question…")
+    
+    if question:
         try:
+            # Show user message immediately
+            with st.chat_message("user"):
+                st.markdown(question)
+            
+            # Get response
             response_text = get_ai_response(question, kb, st.session_state.uploaded_text)
+            
+            # Show assistant response
+            with st.chat_message("assistant"):
+                st.markdown(response_text)
             
             # Add to history
             st.session_state.chat_history.append({
@@ -334,13 +332,10 @@ with tab1:
                 "answer": response_text
             })
             log_action("chat_query", f"Q: {question[:50]}", client)
-            st.rerun()
             
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
             log_action("error", f"Query error: {str(e)}", client)
-    elif submit_btn:
-        st.warning("Please enter a question first.")
 
 with tab2:
     st.subheader("📄 Generate Reports")
