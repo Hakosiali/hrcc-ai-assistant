@@ -96,7 +96,7 @@ def extract_relevant_context(text, question, max_context=2000):
     return ""
 
 def find_relevant_answers(question, knowledge_base):
-    """Find ALL relevant answers from knowledge base, not just exact matches"""
+    """Find ALL relevant answers from knowledge base, with aggressive semantic matching"""
     question_lower = question.lower().strip()
     question_words = set(w.lower() for w in question.split() if len(w) > 3)
     
@@ -109,19 +109,22 @@ def find_relevant_answers(question, knowledge_base):
         # Score based on word overlap
         score = len(question_words & key_words)
         
-        # Add bonus for semantic similarity (e.g., "overtime pay" matches "working hours" section with overtime info)
+        # MASSIVE semantic expansion - think like a human, not a keyword matcher
         semantic_matches = {
-            "overtime": ["pay", "compensation", "salary", "wage", "hours", "work"],
-            "late": ["attendance", "absent", "tardiness", "warning"],
-            "payment": ["salary", "wage", "compensation", "deduction"],
-            "firing": ["dismissal", "termination", "firing"],
-            "leave": ["vacation", "absent", "sick", "maternity"],
+            "overtime|extra hour|additional hour|extra pay|additional pay|overpay": ["overtime", "compensation", "salary", "wage", "hour", "work", "pay"],
+            "late|tardiness|absent|absenteeism|absence|showing up": ["late", "attendance", "absent", "tardiness", "warning", "work"],
+            "pay|payment|wage|salary|compensation|deduction|underpay": ["salary", "wage", "compensation", "deduction", "pay"],
+            "fire|firing|termination|dismissal|layoff|laid off|unemploy": ["dismissal", "termination", "firing"],
+            "leave|vacation|absence|time off|break|holiday": ["leave", "vacation", "absent", "sick", "maternity"],
+            "contract|agreement|employment|job|position|role": ["contract", "employment", "agreement"],
+            "right|protect|law|legal|obligation|allow|entitle": ["right", "employee", "protect", "law"],
         }
         
-        for keyword, related_words in semantic_matches.items():
-            if keyword in question_lower:
-                if any(word in key_lower for word in related_words):
-                    score += 2
+        for keywords, related_words in semantic_matches.items():
+            keyword_list = keywords.split("|")
+            if any(kw in question_lower for kw in keyword_list):
+                if any(word in key_lower or word in answer.lower() for word in related_words):
+                    score += 3  # Stronger boost
         
         if score > 0:
             relevant_answers.append((score, key, answer))
@@ -143,13 +146,46 @@ def combine_relevant_sections(relevant_answers, question):
     combined = "\n\n".join([answer for _, _, answer in to_use])
     return combined
 
+def generate_general_response(question, question_lower):
+    """Generate intelligent response using general HR knowledge when KB doesn't have it"""
+    # This is the AI 'thinking' for common questions that should be answerable
+    
+    if any(word in question_lower for word in ["what is", "define", "meaning", "means"]):
+        # General definition questions
+        if "contract" in question_lower:
+            return "An employment contract is a written or implied agreement between an employer and employee that outlines job duties, salary, hours, and other terms. In Algeria, all contracts should be in writing and cannot violate labor law rights."
+        elif "overtime" in question_lower or "extra hour" in question_lower:
+            return "Overtime is work done beyond the standard 40-hour workweek. Most countries, including Algeria, require paying overtime at a premium rate (typically 50% more) to compensate for extra hours."
+        elif "salary" in question_lower or "wage" in question_lower:
+            return "Salary (or wage) is regular compensation paid to an employee for their work. It includes base pay plus any bonuses or allowances promised in the contract."
+        elif "right" in question_lower:
+            return "Employee rights are legal protections that protect workers from unfair treatment. These typically include fair pay, safe conditions, reasonable hours, and protection from discrimination."
+    
+    if any(word in question_lower for word in ["can i", "can an", "is it legal", "allowed to"]):
+        # Legal possibility questions
+        if "refuse" in question_lower:
+            return "In most cases, you can refuse unreasonable requests, especially those that violate labor law. However, refusing reasonable job duties could be grounds for discipline. Consult your HR or a lawyer for specific situations."
+        elif "deduct" in question_lower:
+            return "Not all deductions are legal. Common legal deductions include taxes and social security. Illegal deductions often include disciplinary fines, uniform costs, or arbitrary amounts. Check your payslip and dispute unlawful deductions."
+    
+    if any(word in question_lower for word in ["how", "how do", "what should", "what can"]):
+        # How-to questions
+        if "dispute" in question_lower or "disagree" in question_lower or "complaint" in question_lower:
+            return "To dispute something with your employer: (1) Document everything in writing, (2) Submit a formal complaint to HR or your manager, (3) Keep copies of all communications, (4) If unresolved, contact your local labor office or consult a lawyer."
+        elif "calculate" in question_lower:
+            return "For salary calculations: understand your base rate, know how overtime is calculated (usually 50% premium), verify all deductions are legal, and request a detailed payslip. If numbers don't match your contract, raise it with HR."
+    
+    # Fallback: acknowledge the question and direct to specifics
+    return f"That's a good question about employment matters. While I don't have a specific pre-written answer, I can help if you clarify: Are you asking about pay, hours, contracts, rights, or procedures? Employment questions usually fall into these categories."
+
 def get_ai_response(question, knowledge_base, uploaded_text=""):
-    """Intelligent response system with logic and reasoning"""
+    """Hybrid RAG + general knowledge system. Documents enhance, don't restrict."""
     question_lower = question.lower().strip()
     question_lang = detect_language(question)
     
     response = ""
     source = ""
+    confidence = 0  # Track how confident we are in the answer
     
     # PRIORITY 1: Check uploaded documents first (most specific)
     if uploaded_text and len(uploaded_text) > 100:
@@ -157,37 +193,57 @@ def get_ai_response(question, knowledge_base, uploaded_text=""):
         if context and len(context) > 50:
             response = f"{context}"
             source = "📄 **Source: Uploaded PDF Document**"
+            confidence = 100
             
             # Add interpretation
             if any(word in question_lower for word in ["explain", "what", "how", "why", "detail", "tell", "describe"]):
                 response = f"Based on your document:\n\n{response}\n\n**Note:** This information is from your uploaded document."
     
     # PRIORITY 2: Use intelligent matching on knowledge base
-    if not response:
+    if confidence < 100:
         relevant_answers = find_relevant_answers(question, knowledge_base)
         
         if relevant_answers:
-            # Combine all relevant sections
-            response = combine_relevant_sections(relevant_answers, question)
-            source = "📚 **Source: HR Knowledge Base**"
+            # If we found high-confidence matches, use them
+            best_answer = relevant_answers[0]
+            if best_answer[0] >= 2:  # High confidence
+                response = combine_relevant_sections(relevant_answers, question)
+                source = "📚 **Source: HR Knowledge Base**"
+                confidence = 80
+            # Even if lower confidence, we have SOMETHING from the KB
+            elif response == "":
+                response = combine_relevant_sections(relevant_answers, question)
+                source = "📚 **Source: HR Knowledge Base** (partial match)"
+                confidence = 50
+    
+    # PRIORITY 3: If still no answer, provide educated general response
+    if not response and confidence < 50:
+        # AI isn't refusing to think - it's using GENERAL KNOWLEDGE
+        response = generate_general_response(question, question_lower)
+        source = "💡 **Source: General HR/Labor Law Knowledge**"
+        confidence = 60
     
     # Format response based on question type
     if response:
         if any(word in question_lower for word in ["explain", "how", "why", "detail", "tell", "describe", "what"]):
-            response = f"**Explanation:**\n\n{response}\n\n"
+            formatted_response = f"**Explanation:**\n\n{response}\n\n"
         elif any(word in question_lower for word in ["summary", "brief", "short"]):
-            response = f"**Summary:**\n\n{response}\n\n"
+            formatted_response = f"**Summary:**\n\n{response}\n\n"
         else:
-            response = f"**Answer:**\n\n{response}\n\n"
+            formatted_response = f"**Answer:**\n\n{response}\n\n"
         
-        return f"{response}\n\n{source}"
+        # Add confidence note if using general knowledge
+        if confidence < 80 and "General" in source:
+            formatted_response += "\n*Note: This is based on general HR and labor law principles. For specific legal advice about Algerian law, consult a lawyer.*"
+        
+        return f"{formatted_response}\n\n{source}"
     
-    # Default response with helpful suggestions
-    suggestions = "**Employee rights, Overtime, Termination, Work hours, Leave, Salary, Dismissal, Maternity, Sick leave, Attendance, Deductions**"
+    # Only as absolute last resort
+    suggestions = "**Employee rights, Overtime, Salary, Contract, Dismissal, Leave, Maternity, Sick leave, Work hours**"
     if question_lang in ["fr", "ar"]:
-        return f"Je n'ai pas trouvé de réponse précise. Essayez de poser des questions sur: {suggestions}\n\nVous pouvez également télécharger des documents PDF pour des réponses plus détaillées."
+        return f"Je ne comprends pas votre question. Essayez de poser des questions sur: {suggestions}\n\nVous pouvez également télécharger des documents PDF pour des réponses détaillées."
     else:
-        return f"I couldn't find a specific answer for that. Try asking about: {suggestions}\n\nYou can also upload PDF documents for more detailed answers."
+        return f"I'm not sure how to help with that. Try asking about: {suggestions}\n\nYou can also upload PDF documents for detailed answers."
 
 def extract_pdf_text(pdf_file):
     """Extract text from uploaded PDF"""
