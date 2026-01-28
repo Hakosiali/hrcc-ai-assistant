@@ -6,6 +6,10 @@ import csv
 import datetime
 import pandas as pd
 import pdfplumber
+from langdetect import detect, DetectorFactory
+import re
+
+DetectorFactory.seed = 0
 
 load_dotenv()
 
@@ -17,68 +21,144 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Demo knowledge base - simple Q&A system
+# Demo knowledge base - comprehensive Q&A
 KNOWLEDGE_BASE = {
     "default": {
-        "worker late for work": "When an employee is late for work in Algeria, the employer can: 1) Issue a written warning, 2) Deduct 1/30 of monthly salary per day absent (per Labor Code), 3) Terminate after repeated violations. First offense requires warning.",
-        "employee rights algeria": "Workers in Algeria have rights including: Minimum wage, 8-hour workday, annual leave (minimum 18 days), safe working conditions, union membership, and protection against arbitrary dismissal.",
-        "termination notice": "In Algeria, employment termination requires: 1) Written notice, 2) Reason for termination, 3) Severance pay (1 month minimum), 4) Notice period varies by contract.",
-        "maternity leave": "Female workers in Algeria are entitled to 14 weeks maternity leave: 6 weeks before and 8 weeks after birth, with full salary. Employer cannot terminate during this period.",
-        "working hours": "Maximum working hours in Algeria are 40 hours per week. Night shifts limited to 8 hours. Overtime must be compensated with 50% bonus.",
-        "salary minimum": "Minimum wage in Algeria is set by law. Employers must pay at least the legal minimum. Deductions only allowed for legal obligations and union dues.",
-        "sick leave": "Employees are entitled to sick leave with medical certificate. First 3 days paid by employer. Beyond that covered by social security.",
-        "dismissal": "Termination requires written justification. Arbitrary dismissal is prohibited. Employee has right to severance pay and notice period.",
+        "worker late for work": "When an employee is late for work in Algeria, the employer has several options according to the Labor Code:\n\n1. **First Offense**: Issue a written warning. The employer should document the tardiness and discuss with the employee.\n\n2. **Salary Deduction**: Employers can legally deduct 1/30 of the monthly salary for each day of absence. This is a common practice but must be applied fairly and consistently.\n\n3. **Repeated Violations**: After multiple warnings, employers can terminate employment for 'failure to comply with workplace discipline.' The employee must be given written notice.\n\n4. **Legitimate Reasons**: If an employee has a legitimate reason (medical, emergency), documentation should be provided.\n\n**Best Practice**: Have a clear attendance policy in writing, apply it consistently, and give warnings before taking termination action.",
+        
+        "employee rights algeria": "Employees in Algeria are protected by the Labor Code (Code du Travail) and have the following fundamental rights:\n\n✅ **Right to Fair Wages**: Minimum wage set by law, paid regularly and on time\n✅ **Working Hours**: Maximum 40 hours per week, cannot be exceeded without overtime compensation\n✅ **Annual Leave**: Minimum 18 days paid vacation per year\n✅ **Safe Working Conditions**: Employer must ensure workplace safety and health standards\n✅ **Union Membership**: Right to join unions and participate in collective bargaining\n✅ **Protection from Arbitrary Dismissal**: Cannot be fired without written justification and severance\n✅ **Non-Discrimination**: Protection from discrimination based on gender, race, religion, or political beliefs\n✅ **Written Contracts**: Right to have a formal employment contract in writing\n✅ **Medical Care**: Covered by social security (CNAS) for work-related injuries",
+        
+        "termination notice": "Employment termination in Algeria follows strict legal procedures:\n\n**Required Steps**:\n1. **Written Notice**: Employer must provide written termination notice with clear reason\n2. **Justified Cause**: Termination must be for a legitimate reason (misconduct, incompetence, restructuring)\n3. **Notice Period**: Typically 15-30 days depending on job level and contract terms\n4. **Severance Pay**: Employee entitled to severance of at least 1 month's salary, plus unused leave\n5. **Final Settlement**: All outstanding wages, bonuses, and benefits must be paid\n\n**If Terminated Without Cause**: Employee can claim wrongful dismissal and sue for damages.\n**Probation Period Exception**: During probation (first 3 months typically), notice period may be shorter.\n\n**Important**: Arbitrary dismissal is illegal and can result in employer liability.",
+        
+        "maternity leave": "Algerian law provides strong protection for pregnant workers and new mothers:\n\n✅ **Duration**: 14 weeks total maternity leave\n   - 6 weeks BEFORE expected delivery date\n   - 8 weeks AFTER delivery\n\n✅ **Full Salary**: Employee receives full salary during entire maternity leave period\n\n✅ **Job Protection**: Employer CANNOT terminate or punish a woman for taking maternity leave\n\n✅ **Additional Rights**:\n   - 1-hour nursing break per day for 12 months after return\n   - Cannot be assigned to dangerous work during pregnancy\n   - Medical exams paid by employer\n   - Miscarriage leave also covered\n\n✅ **Social Security**: Covered by CNAS (national health insurance)\n\n**Note**: These are minimum rights; some employers offer more generous terms.",
+        
+        "working hours": "Algerian labor law strictly regulates working hours:\n\n**Standard Working Week**:\n- Maximum 40 hours per week\n- Typically 8 hours per day, 5 days per week\n- Rest days must be provided (usually Friday-Saturday)\n\n**Night Shifts**:\n- Maximum 8 hours per night shift\n- Extra regulations for protection and compensation\n- Higher pay required (typically 50% bonus)\n\n**Overtime**:\n- Any hours beyond 40/week must be compensated at 50% higher rate\n- Employer cannot require unlimited overtime\n- Overtime must be documented and paid within same month\n\n**Break Times**:\n- Employees entitled to break periods during working day\n- Usually 1 hour lunch break for 8-hour shift\n\n**Compliance Note**: Exceeding these limits without proper compensation violates labor law.",
+        
+        "salary minimum": "Algerian minimum wage is set by government decree and is mandatory for all employers:\n\n**Key Points**:\n✅ Employers MUST pay at least the legal minimum wage\n✅ Wage must be paid in full, on time (typically monthly)\n✅ Salary must be documented in writing (payslip)\n\n**Legal Deductions**:\n- Income taxes (withholding)\n- Social security contributions (CNAS, CASNOS)\n- Court-ordered child support\n- Union dues (only if employee authorizes)\n\n**Illegal Deductions**:\n- Uniforms or tools (employer responsibility)\n- Disciplinary fines (not allowed)\n- Rent or accommodation costs\n- Arbitrary deductions\n\n**Payment Method**: Must be paid in cash, check, or bank transfer. Employer cannot deduct for administrative costs.",
+        
+        "sick leave": "Employees in Algeria are protected when they become ill:\n\n**Short-term Sick Leave (First 3 Days)**:\n- Employee takes leave due to illness\n- EMPLOYER pays 100% of salary\n- Medical certificate required (from doctor)\n- No limit on number of times\n\n**Extended Sick Leave (Beyond 3 Days)**:\n- CNAS (National Health Insurance) takes over payment\n- Employee receives 75-80% of salary from CNAS\n- Medical certificate required\n- Can last up to 6 months\n\n**Work-Related Illness**:\n- 100% covered by social security\n- Extended benefits apply\n\n**Important**:\n- Cannot be terminated for legitimate illness\n- Must provide medical documentation\n- Employer cannot harass employee for sick days",
+        
+        "dismissal": "Dismissal in Algeria is heavily regulated to protect workers:\n\n**Valid Reasons for Dismissal**:\n1. Serious misconduct (theft, violence, insubordination)\n2. Repeated poor performance despite warnings\n3. Repeated absences without justification\n4. Incompetence after training period\n5. Bankruptcy or permanent closure of business\n\n**Process**:\n1. Verbal warning (if possible)\n2. Written warning\n3. Final written notice of dismissal with reason\n4. At least 15-30 days notice\n5. Final payment of all wages and benefits\n\n**Prohibited Dismissals**:\n- Cannot fire based on gender, race, religion, politics\n- Cannot fire pregnant women or during maternity leave\n- Cannot fire union organizers\n- Cannot fire without proper justification\n\n**Consequences of Wrongful Dismissal**:\n- Rehiring with back pay\n- Damages for lost wages\n- Additional compensation\n- Legal fees",
     },
+    
     "knowledge": {
-        "droit du travail": "Le droit du travail algérien est régi par le Code du Travail de 1990. Les droits fondamentaux incluent: salaire minimum, 40h/semaine, congés payés (minimum 18 jours), conditions de travail sûres.",
-        "licenciement": "La résiliation en Algérie nécessite: notification écrite, motif justifié, indemnité de licenciement (minimum 1 mois), délai de préavis respecté.",
-        "prestations sociales": "L'employeur doit assurer: cotisations CNAS, CASNOS, assurance maladie, couverture accident du travail conformément à la législation algérienne.",
-        "congé maternité": "Les femmes ont droit à 14 semaines de congé maternité: 6 avant et 8 après l'accouchement, avec salaire complet. L'employeur ne peut pas résilier pendant cette période.",
-        "heures de travail": "La durée maximale est 40 heures par semaine en Algérie. Les heures supplémentaires doivent être compensées à 50% de majoration.",
+        "droit du travail": "Le droit du travail algérien est régi par le Code du Travail de 1990 avec plusieurs modifications:\n\n**Principes Fondamentaux**:\n- Salaire minimum légal obligatoire\n- Durée maximale 40 heures par semaine\n- Congés payés minimum 18 jours annuels\n- Conditions de travail sûres et hygiéniques\n- Protection contre le licenciement arbitraire\n- Droit à la syndicalisation\n\n**Domaines Principaux**:\n1. Relations individuelles de travail (contrat, salaire, congés)\n2. Discipline et sanctions\n3. Sécurité et santé au travail\n4. Relations collectives (syndicats, conventions)\n5. Conditions particulières (femmes, jeunes, handicapés)",
+        
+        "licenciement": "Le licenciement en Algérie est fortement encadré par la loi:\n\n**Procédure Obligatoire**:\n1. Notification écrite avec motif justifié\n2. Délai de préavis: 15 à 30 jours selon le niveau\n3. Indemnité de licenciement minimale: 1 mois de salaire\n4. Paiement des congés non pris\n5. Certificat de travail\n\n**Motifs Valides**:\n- Faute grave (vol, violence, insubordination)\n- Incompétence malgré formation\n- Absences répétées injustifiées\n- Fermeture ou liquidation de l'entreprise\n\n**Licenciements Interdits**:\n- Licenciement de femmes enceintes\n- Licenciement pendant congé maternité\n- Licenciement pour activité syndicale\n- Licenciement discriminatoire\n\n**Recours**: L'employé peut contester devant les prud'hommes.",
+        
+        "prestations sociales": "L'employeur algérien doit assurer plusieurs cotisations obligatoires:\n\n**CNAS (Caisse Nationale de Sécurité Sociale)**:\n- Assurance maladie des salariés\n- Prestations familiales\n- Indemnités de maternité\n- Couverture des accidents du travail\n- Cotisation: pourcentage du salaire\n\n**CASNOS (Sécurité Sociale des Non-Salariés)**:\n- Pour les travailleurs indépendants\n- Cotisations mensuelles obligatoires\n\n**Assurance Chômage**:\n- Protection en cas de licenciement\n- Allocation chômage temporaire\n\n**Fonds de Garantie des Salaires**:\n- Protège les salaires non payés\n- En cas de faillite de l'employeur\n\n**Obligation Employeur**: Verser ces cotisations mensuellement, sinon amendes et sanctions.",
+        
+        "congé maternité": "Protection complète pour les femmes enceintes et nouvelles mères:\n\n**Durée du Congé**:\n- 6 semaines AVANT l'accouchement\n- 8 semaines APRÈS l'accouchement\n- Total: 14 semaines\n\n**Rémunération**:\n- Salaire INTÉGRAL pendant tout le congé\n- Payé par la CNAS (sécurité sociale)\n\n**Protections**:\n- Interdiction de licenciement pendant la grossesse\n- Interdiction de licenciement pendant le congé\n- Maintien du contrat de travail\n- Réintégration au même poste\n\n**Période d'Allaitement**:\n- 1 heure par jour de pause allaitement\n- Pendant 12 mois après le retour\n- Salarié et payé\n\n**Avantages Supplémentaires**:\n- Examens médicaux gratuits\n- Protection contre travail dangereux",
+        
+        "heures de travail": "La loi algérienne encadre strictement les horaires de travail:\n\n**Durée Légale**:\n- Maximum 40 heures par semaine (sauf accords collectifs)\n- Généralement 8 heures par jour\n- 5 jours de travail, 2 jours de repos\n\n**Travail de Nuit**:\n- Maximum 8 heures par nuit\n- Compensation supplémentaire de 50% minimum\n- Contrôles de santé réguliers\n- Interdiction pour certaines catégories\n\n**Heures Supplémentaires**:\n- Toute heure au-delà de 40/semaine\n- Compensation de 50% au minimum\n- Paiement dans le mois\n- Enregistrement obligatoire\n\n**Repos**:\n- Jours de repos hebdomadaires (généralement vendredi-samedi)\n- Congés payés annuels (minimum 18 jours)\n- Jours fériés\n\n**Non-Respect**: Amendes et responsabilité civile pour l'employeur.",
     },
+    
     "simple": {
-        "hello": "Hello! Welcome to HRCC AI Assistant. I can help with HR questions and Algerian labor law.",
-        "help": "I can help you with: Employee rights, Termination procedures, Work hours, Leave entitlements, Compliance issues.",
-        "contact": "For more information, please contact our HR team or consult with an employment lawyer.",
+        "hello": "Welcome to HRCC AI Assistant! I'm here to help you with HR questions and Algerian labor law. You can ask me about employee rights, contracts, working conditions, or upload documents for detailed answers.",
+        
+        "help": "I can help with:\n- Employee rights and protections\n- Employment termination procedures\n- Working hours and overtime\n- Leave and vacation entitlements\n- Salary and payment issues\n- Maternity and medical leave\n- Workplace compliance\n- Document analysis (upload PDFs)\n\nWhat would you like to know?",
+        
+        "contact": "For detailed legal advice, please consult with an employment lawyer or your local labor department (Office de l'Emploi).",
     }
 }
 
+def detect_language(text):
+    """Detect the language of the text"""
+    try:
+        lang = detect(text)
+        return lang
+    except:
+        return "en"
+
+def extract_relevant_context(text, question, max_context=2000):
+    """Extract most relevant paragraphs from text"""
+    # Split into sentences
+    sentences = re.split(r'[.!?]+', text)
+    sentences = [s.strip() for s in sentences if s.strip()]
+    
+    # Score sentences by relevance
+    question_words = set(w.lower() for w in question.split() if len(w) > 3)
+    
+    scored_sentences = []
+    for i, sentence in enumerate(sentences):
+        score = sum(1 for word in question_words if word in sentence.lower())
+        if score > 0:
+            scored_sentences.append((score, i, sentence))
+    
+    # Sort by relevance
+    scored_sentences.sort(reverse=True)
+    
+    # Take top relevant sentences (preserve some order)
+    if scored_sentences:
+        top_sentences = sorted(scored_sentences[:5], key=lambda x: x[1])
+        context = ". ".join([s[2] for s in top_sentences])
+        return context[:max_context]
+    return ""
+
 def get_ai_response(question, knowledge_base, uploaded_text=""):
-    """Simple keyword-based response system with uploaded document support"""
+    """Intelligent response system with language awareness"""
     question_lower = question.lower().strip()
+    question_lang = detect_language(question)
     
-    # First check uploaded documents if available
-    if uploaded_text:
-        uploaded_text_lower = uploaded_text.lower()
-        
-        # Simple search in uploaded text
-        words = [w for w in question_lower.split() if len(w) > 3]
-        if words and any(word in uploaded_text_lower for word in words):
-            # Find relevant context from uploaded text
-            sentences = uploaded_text.split('.')
-            relevant_sentences = []
-            for sentence in sentences:
-                if any(word in sentence.lower() for word in words):
-                    relevant_sentences.append(sentence.strip())
+    response = ""
+    source = ""
+    
+    # PRIORITY 1: Check uploaded documents first (for detailed answers)
+    if uploaded_text and len(uploaded_text) > 100:
+        context = extract_relevant_context(uploaded_text, question)
+        if context and len(context) > 50:
+            # Provide comprehensive answer from document
+            response = f"{context}"
+            source = "📄 Uploaded PDF Document"
             
-            if relevant_sentences:
-                context = ". ".join(relevant_sentences[:3])
-                return f"**Answer (from uploaded document):** {context}.\n\n📚 **Source:** Uploaded PDF Document"
+            # Add interpretation
+            if "explain" in question_lower or "what" in question_lower or "how" in question_lower:
+                response = f"Based on the document:\n\n{response}\n\n**Explanation:** This section explains the key requirements and procedures mentioned in your document."
     
-    # Then check built-in knowledge base
-    # Check for exact matches
-    for key, answer in knowledge_base.items():
-        if key.lower() in question_lower:
-            return f"**Answer:** {answer}\n\n📚 **Source:** HR Knowledge Base"
+    # PRIORITY 2: Check built-in knowledge base
+    if not response:
+        # Try exact match
+        for key, answer in knowledge_base.items():
+            if key.lower() in question_lower:
+                response = answer
+                source = "📚 HR Knowledge Base"
+                break
+        
+        # Try keyword matching with better scoring
+        if not response:
+            best_match = None
+            best_score = 0
+            
+            for key, answer in knowledge_base.items():
+                key_words = [w for w in key.split() if len(w) > 3]
+                score = sum(1 for w in key_words if w.lower() in question_lower)
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = answer
+            
+            if best_match:
+                response = best_match
+                source = "📚 HR Knowledge Base"
     
-    # Check for partial matches
-    for key, answer in knowledge_base.items():
-        key_words = [w for w in key.split() if len(w) > 3]
-        if key_words and any(word in question_lower for word in key_words):
-            return f"**Answer:** {answer}\n\n📚 **Source:** HR Knowledge Base"
+    # Format response based on question type
+    if response:
+        # If they ask for explanation, elaboration
+        if any(word in question_lower for word in ["explain", "how", "why", "detail", "tell", "describe"]):
+            response = f"**Explanation:**\n\n{response}\n\n"
+        elif any(word in question_lower for word in ["summary", "brief", "short"]):
+            response = f"**Summary:**\n\n{response}\n\n"
+        else:
+            response = f"**Answer:**\n\n{response}\n\n"
+        
+        return f"{response}\n\n{source}"
     
-    # Default response
-    return "I couldn't find a specific answer. Try asking about: **employee rights, termination, work hours, leave, salary, dismissal, maternity, or sick leave**. You can also upload PDF documents for more detailed answers."
+    # Default response with helpful suggestions
+    suggestions = "**Employee rights, Termination, Work hours, Leave, Salary, Dismissal, Maternity, Sick leave**"
+    if question_lang in ["fr", "ar"]:
+        return f"Je n'ai pas trouvé de réponse précise. Essayez de poser des questions sur: {suggestions}\n\nVous pouvez également télécharger des documents PDF pour des réponses plus détaillées."
+    else:
+        return f"I couldn't find a specific answer. Try asking about: {suggestions}\n\nYou can also upload PDF documents for more detailed answers."
 
 def extract_pdf_text(pdf_file):
     """Extract text from uploaded PDF"""
