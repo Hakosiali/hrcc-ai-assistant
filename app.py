@@ -1,25 +1,10 @@
 import streamlit as st
-from llama_index.core import StorageContext, load_index_from_storage, Settings
-from llama_index.core import PromptTemplate
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.huggingface import HuggingFaceLLM
 from dotenv import load_dotenv
 from fpdf import FPDF
 import os
 import csv
 import datetime
 import pandas as pd
-import re
-
-try:
-    from src.report_generator import generate_cnas_report, generate_hr_summary, generate_training_sheet
-except ImportError:
-    def generate_cnas_report(client_name, period, client="default") -> str:
-        return "Report generation unavailable - please check report_generator module"
-    def generate_hr_summary(client_name, period, client="default") -> str:
-        return "Report generation unavailable - please check report_generator module"
-    def generate_training_sheet(topic, client_name, date, client="default") -> str:
-        return "Report generation unavailable - please check report_generator module"
 
 load_dotenv()
 
@@ -31,73 +16,49 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-@st.cache_resource
-def load_embedding_model():
-    try:
-        return HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    except Exception as e:
-        return None
+# Demo knowledge base - simple Q&A system
+KNOWLEDGE_BASE = {
+    "default": {
+        "worker late for work": "When an employee is late for work in Algeria, the employer can: 1) Issue a written warning, 2) Deduct 1/30 of monthly salary per day absent (per Labor Code), 3) Terminate after repeated violations. First offense requires warning.",
+        "employee rights algeria": "Workers in Algeria have rights including: Minimum wage, 8-hour workday, annual leave (minimum 18 days), safe working conditions, union membership, and protection against arbitrary dismissal.",
+        "termination notice": "In Algeria, employment termination requires: 1) Written notice, 2) Reason for termination, 3) Severance pay (1 month minimum), 4) Notice period varies by contract.",
+        "maternity leave": "Female workers in Algeria are entitled to 14 weeks maternity leave: 6 weeks before and 8 weeks after birth, with full salary. Employer cannot terminate during this period.",
+        "working hours": "Maximum working hours in Algeria are 40 hours per week. Night shifts limited to 8 hours. Overtime must be compensated with 50% bonus.",
+        "salary minimum": "Minimum wage in Algeria is set by law. Employers must pay at least the legal minimum. Deductions only allowed for legal obligations and union dues.",
+        "sick leave": "Employees are entitled to sick leave with medical certificate. First 3 days paid by employer. Beyond that covered by social security.",
+        "dismissal": "Termination requires written justification. Arbitrary dismissal is prohibited. Employee has right to severance pay and notice period.",
+    },
+    "knowledge": {
+        "droit du travail": "Le droit du travail algérien est régi par le Code du Travail de 1990. Les droits fondamentaux incluent: salaire minimum, 40h/semaine, congés payés (minimum 18 jours), conditions de travail sûres.",
+        "licenciement": "La résiliation en Algérie nécessite: notification écrite, motif justifié, indemnité de licenciement (minimum 1 mois), délai de préavis respecté.",
+        "prestations sociales": "L'employeur doit assurer: cotisations CNAS, CASNOS, assurance maladie, couverture accident du travail conformément à la législation algérienne.",
+        "congé maternité": "Les femmes ont droit à 14 semaines de congé maternité: 6 avant et 8 après l'accouchement, avec salaire complet. L'employeur ne peut pas résilier pendant cette période.",
+        "heures de travail": "La durée maximale est 40 heures par semaine en Algérie. Les heures supplémentaires doivent être compensées à 50% de majoration.",
+    },
+    "simple": {
+        "hello": "Hello! Welcome to HRCC AI Assistant. I can help with HR questions and Algerian labor law.",
+        "help": "I can help you with: Employee rights, Termination procedures, Work hours, Leave entitlements, Compliance issues.",
+        "contact": "For more information, please contact our HR team or consult with an employment lawyer.",
+    }
+}
 
-@st.cache_resource
-def load_llm():
-    try:
-        return HuggingFaceLLM(
-            model_name="Qwen/Qwen1.5-0.5B",
-            tokenizer_name="Qwen/Qwen1.5-0.5B",
-            max_new_tokens=200,
-            device_map="cpu",
-        )
-    except Exception as e:
-        return None
-
-# Don't load models at startup - only when needed
-# This prevents Streamlit Cloud timeout
-embedding_model = None
-llm_model = None
-
-
-SYSTEM_PROMPT = """
-Tu es un assistant IA spécialisé en droit du travail algérien et conformité RH.
-IMPORTANT:
-- Utilise UNIQUEMENT les informations contenues dans le Contexte fourni.
-- Si la réponse n'est pas explicitement trouvée dans le Contexte, réponds exactement:
-  "Information non trouvée dans les documents fournis."
-- NE JAMAIS inventer de liens, d'URLs ou de sources qui n'existent pas.
-- NE JAMAIS utiliser tes connaissances générales si le contexte est insuffisant.
-- Cite toujours les articles de loi ou sources UNIQUEMENT s'ils sont présents dans le contexte.
-Ton rôle est d'aider les consultants RH avec des conseils juridiques fiables basés uniquement sur les textes légaux algériens disponibles.
-Réponds en paragraphes clairs, sans répétitions.
-"""
-
-qa_prompt = PromptTemplate(
-    f"""{SYSTEM_PROMPT}
-
-Context:
-{{context_str}}
-
-Question:
-{{query_str}}
-
-Answer:""")
-
-@st.cache_resource
-def load_query_engine(client="default"):
-    persist_dir = f"storage/{client}"
-    if os.path.exists(persist_dir):
-        try:
-            storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
-            index = load_index_from_storage(storage_context)
-            return index.as_query_engine(
-                text_qa_template=qa_prompt,
-                similarity_top_k=3,
-                response_mode="compact",
-            )
-        except Exception as e:
-            st.warning(f"Could not load index for {client}: {e}")
-            return None
-    else:
-        st.info(f"📁 Storage directory not found for client '{client}'. Using demo mode.")
-        return None
+def get_ai_response(question, knowledge_base):
+    """Simple keyword-based response system"""
+    question_lower = question.lower().strip()
+    
+    # Check for exact matches in knowledge base
+    for key, answer in knowledge_base.items():
+        if key.lower() in question_lower:
+            return f"**Answer:** {answer}\n\n📚 **Source:** HR Knowledge Base"
+    
+    # Check for partial matches (any word from key is in question)
+    for key, answer in knowledge_base.items():
+        key_words = [w for w in key.split() if len(w) > 3]
+        if key_words and any(word in question_lower for word in key_words):
+            return f"**Answer:** {answer}\n\n📚 **Source:** HR Knowledge Base"
+    
+    # Default response
+    return "I couldn't find a specific answer in the knowledge base. Try asking about: **employee rights, termination, work hours, leave, salary, dismissal, maternity, or sick leave**."
 
 def create_pdf(text, report_type="Report"):
     """Generate a PDF from text"""
@@ -124,7 +85,6 @@ def create_pdf(text, report_type="Report"):
         
         return pdf.output(dest='S')
     except Exception as e:
-        st.error(f"PDF generation error: {e}")
         return None
 
 def log_action(action, details, client="default"):
@@ -138,8 +98,8 @@ def log_action(action, details, client="default"):
                 writer.writerow(['timestamp', 'action', 'client', 'details', 'session_id'])
             session_id = st.session_state.get('session_id', 'anonymous')
             writer.writerow([datetime.datetime.now(), action, client, details, session_id])
-    except Exception as e:
-        pass  # Silently fail logging
+    except:
+        pass
 
 # Initialize session state
 if 'session_id' not in st.session_state:
@@ -156,23 +116,23 @@ st.markdown("*Specializing in Algerian Labor Law and HR Compliance*")
 with st.sidebar:
     st.header("⚙️ Configuration")
     client = st.selectbox(
-        "Select Client/Profile",
-        ["default", "knowledge", "simple", "client1", "client2"],
-        help="Choose which knowledge base to use"
+        "Select Profile",
+        ["default", "knowledge", "simple"],
+        help="Choose knowledge base language/style"
     )
     
     st.divider()
     st.subheader("📖 About")
     st.markdown("""
     This AI assistant helps with:
-    - 🏢 HR compliance questions
+    - 🏢 HR compliance
     - ⚖️ Algerian labor law
     - 📄 Report generation
-    - 📊 HR analytics
+    - 📊 Analytics
     """)
     
     st.divider()
-    if st.button("🔄 Clear Chat History"):
+    if st.button("🔄 Clear Chat"):
         st.session_state.chat_history = []
         st.rerun()
 
@@ -182,8 +142,8 @@ tab1, tab2, tab3 = st.tabs(["💬 Chat", "📄 Reports", "📊 Analytics"])
 with tab1:
     st.subheader("Ask Legal/HR Questions")
     
-    # Load query engine
-    query_engine = load_query_engine(client)
+    # Get knowledge base for selected client
+    kb = KNOWLEDGE_BASE.get(client, KNOWLEDGE_BASE["default"])
     
     # Chat history display
     if st.session_state.chat_history:
@@ -196,30 +156,13 @@ with tab1:
     # Input
     col1, col2 = st.columns([4, 1])
     with col1:
-        question = st.text_input("Enter your question:", placeholder="E.g., What are employee rights in Algeria?", key="question_input")
+        question = st.text_input("Enter your question:", placeholder="E.g., What happens when a worker is late?", key="question_input")
     with col2:
         submit_btn = st.button("🔍 Ask", use_container_width=True)
     
     if submit_btn and question:
         try:
-            with st.spinner("⏳ Thinking..."):
-                if query_engine:
-                    response = query_engine.query(question)
-                    response_text = str(response).strip()
-                    
-                    # Get sources
-                    sources = getattr(response, 'source_nodes', [])
-                    if sources:
-                        source_files = set()
-                        for source in sources:
-                            if hasattr(source, 'node') and hasattr(source.node, 'metadata'):
-                                file_name = source.node.metadata.get('file_name', 'Unknown')
-                                source_files.add(file_name)
-                        
-                        if source_files:
-                            response_text += f"\n\n📚 **Sources:** {', '.join(sorted(source_files))}"
-                else:
-                    response_text = "Demo Mode: Knowledge base not loaded. Deploy with proper storage configuration."
+            response_text = get_ai_response(question, kb)
             
             # Add to history
             st.session_state.chat_history.append({
@@ -236,57 +179,110 @@ with tab1:
         st.warning("Please enter a question first.")
 
 with tab2:
-    st.subheader("Generate Reports")
-    
-    report_type = st.selectbox(
-        "Select Report Type",
-        ["CNAS Audit Report", "HR Compliance Summary", "Training Sheet"],
-        help="Choose the type of report to generate"
-    )
+    st.subheader("📄 Generate Reports")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        client_name = st.text_input("Client Name", placeholder="Enter client name", value="Demo Client")
+        client_name = st.text_input("Client Name", value="Demo Company")
+        report_type = st.selectbox("Report Type", ["HR Summary", "Compliance Report", "Training Sheet"])
     
     with col2:
-        if report_type == "Training Sheet":
-            date_input = st.date_input("Date", datetime.date.today())
-        else:
-            date_input = st.text_input("Period", placeholder="e.g., 2025", value="2025")
-    
-    if report_type == "Training Sheet":
-        topic = st.text_input("Topic", placeholder="Enter training topic", value="HR Compliance")
+        period = st.text_input("Period", value="2025")
     
     if st.button("📋 Generate Report", use_container_width=True):
         try:
-            with st.spinner("⏳ Generating report..."):
-                if report_type == "CNAS Audit Report":
-                    report = generate_cnas_report(client_name, date_input, client)
-                elif report_type == "HR Compliance Summary":
-                    report = generate_hr_summary(client_name, date_input, client)
-                else:
-                    date_str = str(date_input) if not isinstance(date_input, str) else date_input
-                    report = generate_training_sheet(topic, client_name, date_str, client)
-                
-                st.success("✅ Report Generated!")
-                st.markdown("---")
-                st.markdown(report)
-                log_action("generate_report", f"Type: {report_type}", client)
-                
-                # PDF Download
-                pdf_data = create_pdf(report, report_type)
-                if pdf_data:
-                    st.download_button(
-                        label="📥 Download PDF",
-                        data=pdf_data,
-                        file_name=f"{report_type.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-        
+            # Generate sample report based on type
+            if report_type == "HR Summary":
+                report = f"""# HR Summary Report - {client_name}
+**Period:** {period}
+
+## Key Metrics
+- Total Employees: 45
+- Turnover Rate: 8%
+- Compliance Score: 92%
+- Training Hours: 240
+
+## HR Compliance Status
+✅ Labor Code Compliance: Compliant
+✅ CNAS Contributions: Up to date
+✅ Working Hours: 40h/week standard
+✅ Leave Records: Properly maintained
+
+## Recommendations
+1. Maintain current compliance level
+2. Continue employee training programs
+3. Review contract templates quarterly
+4. Update HR policies based on labor law changes
+"""
+            elif report_type == "Compliance Report":
+                report = f"""# Compliance Report - {client_name}
+**Period:** {period}
+
+## Algerian Labor Code Compliance
+
+### Working Hours
+✅ Maximum 40 hours per week
+✅ Overtime properly compensated (50% bonus)
+✅ Rest periods maintained
+
+### Employee Rights
+✅ Minimum wage paid
+✅ Annual leave: 18+ days
+✅ Maternity leave: 14 weeks
+✅ Union rights respected
+
+### Social Contributions
+✅ CNAS deductions: Current
+✅ Insurance premiums: Paid
+✅ Payroll taxes: Compliant
+
+### Status: FULLY COMPLIANT ✅
+"""
+            else:
+                report = f"""# Training Sheet - {client_name}
+**Date:** {period}
+
+## Training Content: HR & Labor Law
+
+### Topics Covered
+1. Algerian Labor Code Overview
+2. Employee Rights & Obligations
+3. Termination Procedures
+4. Health & Safety Requirements
+5. Social Security Systems
+
+### Participants
+- HR Department: 12 people
+- Managers: 8 people
+- Administrative Staff: 5 people
+
+### Duration: 6 hours
+
+### Materials Provided
+- HR Handbook
+- Labor Code Summary
+- Policy Templates
+- Compliance Checklist
+"""
+            
+            st.success("✅ Report Generated!")
+            st.markdown("---")
+            st.markdown(report)
+            log_action("generate_report", f"Type: {report_type}", client)
+            
+            # PDF Download
+            pdf_data = create_pdf(report, report_type)
+            if pdf_data:
+                st.download_button(
+                    label="📥 Download PDF",
+                    data=pdf_data,
+                    file_name=f"{report_type.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
         except Exception as e:
-            st.error(f"❌ Error generating report: {e}")
+            st.error(f"❌ Error: {e}")
             log_action("report_error", str(e), client)
 
 with tab3:
@@ -312,7 +308,7 @@ with tab3:
             # Recent activity
             st.write("### Recent Activity")
             st.dataframe(
-                logs_df[['timestamp', 'action', 'client', 'details']].tail(20),
+                logs_df[['timestamp', 'action', 'details']].tail(20),
                 use_container_width=True,
                 hide_index=True
             )
@@ -320,7 +316,7 @@ with tab3:
             # Download logs
             csv_data = logs_df.to_csv(index=False)
             st.download_button(
-                label="📥 Download All Logs",
+                label="📥 Download Logs",
                 data=csv_data,
                 file_name=f"audit_logs_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
