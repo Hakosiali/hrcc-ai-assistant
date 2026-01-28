@@ -36,7 +36,6 @@ def load_embedding_model():
     try:
         return HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
     except Exception as e:
-        st.error(f"Failed to load embedding model: {e}")
         return None
 
 @st.cache_resource
@@ -49,19 +48,12 @@ def load_llm():
             device_map="cpu",
         )
     except Exception as e:
-        st.error(f"Failed to load LLM: {e}")
         return None
 
-try:
-    embedding_model = load_embedding_model()
-    llm_model = load_llm()
-    
-    if embedding_model:
-        Settings.embed_model = embedding_model
-    if llm_model:
-        Settings.llm = llm_model
-except Exception as e:
-    st.warning(f"Note: Some models may not be fully loaded. {e}")
+# Don't load models at startup - only when needed
+# This prevents Streamlit Cloud timeout
+embedding_model = None
+llm_model = None
 
 
 SYSTEM_PROMPT = """
