@@ -95,56 +95,85 @@ def extract_relevant_context(text, question, max_context=2000):
         return context[:max_context]
     return ""
 
+def find_relevant_answers(question, knowledge_base):
+    """Find ALL relevant answers from knowledge base, not just exact matches"""
+    question_lower = question.lower().strip()
+    question_words = set(w.lower() for w in question.split() if len(w) > 3)
+    
+    relevant_answers = []
+    
+    for key, answer in knowledge_base.items():
+        key_lower = key.lower()
+        key_words = set(w.lower() for w in key.split() if len(w) > 3)
+        
+        # Score based on word overlap
+        score = len(question_words & key_words)
+        
+        # Add bonus for semantic similarity (e.g., "overtime pay" matches "working hours" section with overtime info)
+        semantic_matches = {
+            "overtime": ["pay", "compensation", "salary", "wage", "hours", "work"],
+            "late": ["attendance", "absent", "tardiness", "warning"],
+            "payment": ["salary", "wage", "compensation", "deduction"],
+            "firing": ["dismissal", "termination", "firing"],
+            "leave": ["vacation", "absent", "sick", "maternity"],
+        }
+        
+        for keyword, related_words in semantic_matches.items():
+            if keyword in question_lower:
+                if any(word in key_lower for word in related_words):
+                    score += 2
+        
+        if score > 0:
+            relevant_answers.append((score, key, answer))
+    
+    # Sort by relevance
+    relevant_answers.sort(reverse=True, key=lambda x: x[0])
+    return relevant_answers
+
+def combine_relevant_sections(relevant_answers, question):
+    """Combine multiple relevant sections into a comprehensive answer"""
+    if not relevant_answers:
+        return ""
+    
+    # If we have very relevant matches (score >= 3), use them
+    # Otherwise use the best match
+    high_confidence = [a for a in relevant_answers if a[0] >= 3]
+    to_use = high_confidence[:3] if high_confidence else relevant_answers[:2]
+    
+    combined = "\n\n".join([answer for _, _, answer in to_use])
+    return combined
+
 def get_ai_response(question, knowledge_base, uploaded_text=""):
-    """Intelligent response system with language awareness"""
+    """Intelligent response system with logic and reasoning"""
     question_lower = question.lower().strip()
     question_lang = detect_language(question)
     
     response = ""
     source = ""
     
-    # PRIORITY 1: Check uploaded documents first (for detailed answers)
+    # PRIORITY 1: Check uploaded documents first (most specific)
     if uploaded_text and len(uploaded_text) > 100:
         context = extract_relevant_context(uploaded_text, question)
         if context and len(context) > 50:
-            # Provide comprehensive answer from document
             response = f"{context}"
-            source = "📄 Uploaded PDF Document"
+            source = "📄 **Source: Uploaded PDF Document**"
             
             # Add interpretation
-            if "explain" in question_lower or "what" in question_lower or "how" in question_lower:
-                response = f"Based on the document:\n\n{response}\n\n**Explanation:** This section explains the key requirements and procedures mentioned in your document."
+            if any(word in question_lower for word in ["explain", "what", "how", "why", "detail", "tell", "describe"]):
+                response = f"Based on your document:\n\n{response}\n\n**Note:** This information is from your uploaded document."
     
-    # PRIORITY 2: Check built-in knowledge base
+    # PRIORITY 2: Use intelligent matching on knowledge base
     if not response:
-        # Try exact match
-        for key, answer in knowledge_base.items():
-            if key.lower() in question_lower:
-                response = answer
-                source = "📚 HR Knowledge Base"
-                break
+        relevant_answers = find_relevant_answers(question, knowledge_base)
         
-        # Try keyword matching with better scoring
-        if not response:
-            best_match = None
-            best_score = 0
-            
-            for key, answer in knowledge_base.items():
-                key_words = [w for w in key.split() if len(w) > 3]
-                score = sum(1 for w in key_words if w.lower() in question_lower)
-                
-                if score > best_score:
-                    best_score = score
-                    best_match = answer
-            
-            if best_match:
-                response = best_match
-                source = "📚 HR Knowledge Base"
+        if relevant_answers:
+            # Combine all relevant sections
+            response = combine_relevant_sections(relevant_answers, question)
+            source = "📚 **Source: HR Knowledge Base**"
     
     # Format response based on question type
     if response:
-        # If they ask for explanation, elaboration
-        if any(word in question_lower for word in ["explain", "how", "why", "detail", "tell", "describe"]):
+        if any(word in question_lower for word in ["explain", "how", "why", "detail", "tell", "describe", "what"]):
             response = f"**Explanation:**\n\n{response}\n\n"
         elif any(word in question_lower for word in ["summary", "brief", "short"]):
             response = f"**Summary:**\n\n{response}\n\n"
@@ -154,11 +183,11 @@ def get_ai_response(question, knowledge_base, uploaded_text=""):
         return f"{response}\n\n{source}"
     
     # Default response with helpful suggestions
-    suggestions = "**Employee rights, Termination, Work hours, Leave, Salary, Dismissal, Maternity, Sick leave**"
+    suggestions = "**Employee rights, Overtime, Termination, Work hours, Leave, Salary, Dismissal, Maternity, Sick leave, Attendance, Deductions**"
     if question_lang in ["fr", "ar"]:
         return f"Je n'ai pas trouvé de réponse précise. Essayez de poser des questions sur: {suggestions}\n\nVous pouvez également télécharger des documents PDF pour des réponses plus détaillées."
     else:
-        return f"I couldn't find a specific answer. Try asking about: {suggestions}\n\nYou can also upload PDF documents for more detailed answers."
+        return f"I couldn't find a specific answer for that. Try asking about: {suggestions}\n\nYou can also upload PDF documents for more detailed answers."
 
 def extract_pdf_text(pdf_file):
     """Extract text from uploaded PDF"""
