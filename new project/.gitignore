@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+*.egg-info/
+dist/
+build/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
+*.log
+logs/
+.DS_Store
+*.db
+brain_storage/
+storage/
+
+# Environment variables
+.env
+.env.local
+auth_config.yaml
+config.yaml
