@@ -8,10 +8,23 @@ import pandas as pd
 import pdfplumber
 from langdetect import detect, DetectorFactory
 import re
-from docx import Document
-from openpyxl import load_workbook
-from pptx import Presentation
 import requests
+
+# Try to import optional document libraries (graceful fallback)
+try:
+    from docx import Document
+except ImportError:
+    Document = None
+
+try:
+    from openpyxl import load_workbook
+except ImportError:
+    load_workbook = None
+
+try:
+    from pptx import Presentation
+except ImportError:
+    Presentation = None
 
 DetectorFactory.seed = 0
 
@@ -262,6 +275,8 @@ def extract_pdf_text(pdf_file):
 
 def extract_docx_text(docx_file):
     """Extract text from Word (.docx) file"""
+    if Document is None:
+        return "Word file support not available. Please install python-docx."
     try:
         doc = Document(docx_file)
         text = ""
@@ -279,6 +294,8 @@ def extract_docx_text(docx_file):
 
 def extract_xlsx_text(xlsx_file):
     """Extract text from Excel (.xlsx) file"""
+    if load_workbook is None:
+        return "Excel file support not available. Please install openpyxl."
     try:
         wb = load_workbook(xlsx_file)
         text = ""
@@ -295,6 +312,8 @@ def extract_xlsx_text(xlsx_file):
 
 def extract_pptx_text(pptx_file):
     """Extract text from PowerPoint (.pptx) file"""
+    if Presentation is None:
+        return "PowerPoint file support not available. Please install python-pptx."
     try:
         prs = Presentation(pptx_file)
         text = ""
