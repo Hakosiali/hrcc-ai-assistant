@@ -413,7 +413,7 @@ with st.sidebar:
     )
     
     st.divider()
-    if st.button("🧹 Clear conversation", use_container_width=True):
+    if st.button("🧹 Clear conversation", width='stretch'):
         st.session_state.chat_history = []
         st.rerun()
 
@@ -491,7 +491,7 @@ with tab1:
                 label_visibility="collapsed"
             )
             
-            if url_input and st.button("🔗 Load URL", use_container_width=True):
+            if url_input and st.button("🔗 Load URL", width='stretch'):
                 if url_input.startswith("http"):
                     with st.spinner("🌐 Fetching webpage..."):
                         url_text = extract_url_text(url_input)
@@ -574,7 +574,7 @@ with tab2:
     with col2:
         period = st.text_input("Period", value="2025")
     
-    if st.button("📋 Generate Report", use_container_width=True):
+    if st.button("📋 Generate Report", width='stretch'):
         try:
             # Generate sample report based on type
             if report_type == "HR Summary":
@@ -663,7 +663,7 @@ with tab2:
                     data=pdf_data,
                     file_name=f"{report_type.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
                     mime="application/pdf",
-                    use_container_width=True
+                    width='stretch'
                 )
         except Exception as e:
             st.error(f"❌ Error: {e}")
@@ -704,7 +704,7 @@ with tab3:
                 data=csv_data,
                 file_name=f"audit_logs_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
-                use_container_width=True
+                width='stretch'
             )
         except Exception as e:
             st.error(f"Error reading logs: {e}")
