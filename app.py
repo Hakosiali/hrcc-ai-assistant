@@ -9,6 +9,7 @@ import pdfplumber
 from langdetect import detect, DetectorFactory
 import re
 import requests
+import html
 
 # Try to import optional document libraries (graceful fallback)
 try:
@@ -336,7 +337,6 @@ def extract_url_text(url):
         response.raise_for_status()
         
         # Simple HTML text extraction (remove HTML tags)
-        import html
         text = response.text
         # Remove script and style elements
         text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
@@ -428,8 +428,17 @@ with tab1:
     with st.expander("📎 Upload documents or add links for context (optional)"):
         col1, col2 = st.columns(2)
         
+        # Define supported file types
+        SUPPORTED_TYPES = {
+            'pdf': 'PDF Document',
+            'docx': 'Word Document',
+            'xlsx': 'Excel Spreadsheet',
+            'pptx': 'PowerPoint Presentation'
+        }
+        
         with col1:
             st.markdown("**Upload Files**")
+            st.caption("📂 Supported: PDF, Word, Excel, PowerPoint")
             uploaded_files = st.file_uploader(
                 "Select documents",
                 type=["pdf", "docx", "xlsx", "pptx"],
@@ -439,21 +448,40 @@ with tab1:
             
             if uploaded_files:
                 for uploaded_file in uploaded_files:
+                    # Validate file extension
+                    file_ext = uploaded_file.name.split('.')[-1].lower()
+                    
+                    if file_ext not in SUPPORTED_TYPES:
+                        st.error(f"❌ Unsupported file type: {file_ext}. Please use: {', '.join(SUPPORTED_TYPES.keys())}")
+                        continue
+                    
                     with st.spinner(f"📖 Extracting text from {uploaded_file.name}..."):
-                        if uploaded_file.name.endswith('.pdf'):
+                        # Extract based on file type
+                        if file_ext == 'pdf':
                             extracted_text = extract_pdf_text(uploaded_file)
-                        elif uploaded_file.name.endswith('.docx'):
+                        elif file_ext == 'docx':
                             extracted_text = extract_docx_text(uploaded_file)
-                        elif uploaded_file.name.endswith('.xlsx'):
+                        elif file_ext == 'xlsx':
                             extracted_text = extract_xlsx_text(uploaded_file)
-                        elif uploaded_file.name.endswith('.pptx'):
+                        elif file_ext == 'pptx':
                             extracted_text = extract_pptx_text(uploaded_file)
+                        else:
+                            extracted_text = f"Error: Unable to extract text from {file_ext} files"
+                        
+                        # Validate extraction was successful (not an error message)
+                        if extracted_text.startswith("Error") or not extracted_text.strip():
+                            st.error(f"⚠️ {extracted_text if extracted_text.startswith('Error') else 'No text found in file'}")
+                            continue
+                        
+                        # Append to session state
+                        source_label = SUPPORTED_TYPES.get(file_ext, 'Uploaded Document')
+                        file_separator = f"\n\n[Source: {source_label} - {uploaded_file.name}]\n\n"
                         
                         if st.session_state.uploaded_text:
-                            st.session_state.uploaded_text += "\n\n---\n\n" + extracted_text
+                            st.session_state.uploaded_text += file_separator + extracted_text
                         else:
                             st.session_state.uploaded_text = extracted_text
-                        st.success(f"✅ Loaded: {uploaded_file.name}")
+                        st.success(f"✅ Loaded: {uploaded_file.name} ({source_label})")
         
         with col2:
             st.markdown("**Add Link**")
@@ -467,16 +495,18 @@ with tab1:
                 if url_input.startswith("http"):
                     with st.spinner("🌐 Fetching webpage..."):
                         url_text = extract_url_text(url_input)
-                        if not url_text.startswith("Error"):
+                        # Check if extraction was successful
+                        if not url_text.startswith("Error") and url_text.strip():
+                            url_separator = f"\n\n[Source: Web Page - {url_input}]\n\n"
                             if st.session_state.uploaded_text:
-                                st.session_state.uploaded_text += "\n\n---\n\n" + url_text
+                                st.session_state.uploaded_text += url_separator + url_text
                             else:
                                 st.session_state.uploaded_text = url_text
                             st.success(f"✅ Loaded: {url_input}")
                         else:
-                            st.error(url_text)
+                            st.error(f"⚠️ {url_text if url_text.startswith('Error') else 'No content found in URL'}")
                 else:
-                    st.error("Please enter a valid URL (starting with http:// or https://)")
+                    st.error("❌ Please enter a valid URL (starting with http:// or https://)")
     
     # Clear document button
     if st.session_state.uploaded_text:
