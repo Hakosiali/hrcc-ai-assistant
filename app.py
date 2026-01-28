@@ -5,6 +5,7 @@ import os
 import csv
 import datetime
 import pandas as pd
+import pdfplumber
 
 load_dotenv()
 
@@ -42,23 +43,53 @@ KNOWLEDGE_BASE = {
     }
 }
 
-def get_ai_response(question, knowledge_base):
-    """Simple keyword-based response system"""
+def get_ai_response(question, knowledge_base, uploaded_text=""):
+    """Simple keyword-based response system with uploaded document support"""
     question_lower = question.lower().strip()
     
-    # Check for exact matches in knowledge base
+    # First check uploaded documents if available
+    if uploaded_text:
+        uploaded_text_lower = uploaded_text.lower()
+        
+        # Simple search in uploaded text
+        words = [w for w in question_lower.split() if len(w) > 3]
+        if words and any(word in uploaded_text_lower for word in words):
+            # Find relevant context from uploaded text
+            sentences = uploaded_text.split('.')
+            relevant_sentences = []
+            for sentence in sentences:
+                if any(word in sentence.lower() for word in words):
+                    relevant_sentences.append(sentence.strip())
+            
+            if relevant_sentences:
+                context = ". ".join(relevant_sentences[:3])
+                return f"**Answer (from uploaded document):** {context}.\n\n📚 **Source:** Uploaded PDF Document"
+    
+    # Then check built-in knowledge base
+    # Check for exact matches
     for key, answer in knowledge_base.items():
         if key.lower() in question_lower:
             return f"**Answer:** {answer}\n\n📚 **Source:** HR Knowledge Base"
     
-    # Check for partial matches (any word from key is in question)
+    # Check for partial matches
     for key, answer in knowledge_base.items():
         key_words = [w for w in key.split() if len(w) > 3]
         if key_words and any(word in question_lower for word in key_words):
             return f"**Answer:** {answer}\n\n📚 **Source:** HR Knowledge Base"
     
     # Default response
-    return "I couldn't find a specific answer in the knowledge base. Try asking about: **employee rights, termination, work hours, leave, salary, dismissal, maternity, or sick leave**."
+    return "I couldn't find a specific answer. Try asking about: **employee rights, termination, work hours, leave, salary, dismissal, maternity, or sick leave**. You can also upload PDF documents for more detailed answers."
+
+def extract_pdf_text(pdf_file):
+    """Extract text from uploaded PDF"""
+    try:
+        text = ""
+        with pdfplumber.open(pdf_file) as pdf:
+            for page in pdf.pages:
+                text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        return f"Error reading PDF: {e}"
 
 def create_pdf(text, report_type="Report"):
     """Generate a PDF from text"""
@@ -106,6 +137,8 @@ if 'session_id' not in st.session_state:
     st.session_state.session_id = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
+if 'uploaded_text' not in st.session_state:
+    st.session_state.uploaded_text = ""
 
 # Main UI
 st.title("⚖️ HRCC AI Assistant")
@@ -142,6 +175,28 @@ tab1, tab2, tab3 = st.tabs(["💬 Chat", "📄 Reports", "📊 Analytics"])
 with tab1:
     st.subheader("Ask Legal/HR Questions")
     
+    # PDF Upload Section
+    st.write("### 📤 Upload Documents (Optional)")
+    uploaded_pdf = st.file_uploader("Upload PDF documents for context", type=['pdf'], key="pdf_upload")
+    
+    if uploaded_pdf:
+        with st.spinner("📖 Extracting text from PDF..."):
+            extracted_text = extract_pdf_text(uploaded_pdf)
+            st.session_state.uploaded_text = extracted_text
+            st.success(f"✅ Loaded: {uploaded_pdf.name} ({len(extracted_text)} characters)")
+            
+            # Show preview
+            with st.expander("📄 Preview extracted text"):
+                st.text(extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text)
+    
+    if st.session_state.uploaded_text:
+        st.info(f"📎 Document loaded. Questions will use this document for answers.")
+        if st.button("🗑️ Clear uploaded document"):
+            st.session_state.uploaded_text = ""
+            st.rerun()
+    
+    st.divider()
+    
     # Get knowledge base for selected client
     kb = KNOWLEDGE_BASE.get(client, KNOWLEDGE_BASE["default"])
     
@@ -162,7 +217,7 @@ with tab1:
     
     if submit_btn and question:
         try:
-            response_text = get_ai_response(question, kb)
+            response_text = get_ai_response(question, kb, st.session_state.uploaded_text)
             
             # Add to history
             st.session_state.chat_history.append({
